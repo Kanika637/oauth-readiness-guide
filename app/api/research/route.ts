@@ -326,6 +326,15 @@ function parseGeminiJson(text: string, sources: Source[]): ResearchGuide {
   };
 }
 
+class AiRateLimitError extends Error {
+  constructor(
+    message: string,
+    readonly partial: { sources: Source[]; composio: ComposioStatus }
+  ) {
+    super(message);
+  }
+}
+
 async function generateResearch(appName: string): Promise<ResearchResponse> {
   const tavilyKey = process.env.TAVILY_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -479,7 +488,7 @@ Do not cite a source ID unless it appears in the supplied research.
   });
 
   if ([429, 500, 502, 503, 504].includes(geminiResponse.status)) {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await new Promise((resolve) => setTimeout(resolve, 5000));
 
     geminiResponse = await fetch(geminiUrl, {
       method: "POST",
@@ -493,6 +502,12 @@ Do not cite a source ID unless it appears in the supplied research.
   if (!geminiResponse.ok) {
     const errorText = await geminiResponse.text();
     console.error("Gemini error:", errorText);
+    if (geminiResponse.status === 429) {
+      throw new AiRateLimitError(
+        "The Gemini free-tier quota has been reached. Please try again later.",
+        { sources, composio: composioResult }
+      );
+    }
     throw new Error(`AI report generation failed (${geminiResponse.status}). Please try again.`);
   }
 
@@ -562,6 +577,13 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("OAuth Atlas research error:", error);
+
+    if (error instanceof AiRateLimitError) {
+      return NextResponse.json(
+        { error: error.message, code: "AI_RATE_LIMITED", partial: error.partial },
+        { status: 429 }
+      );
+    }
 
     const message =
       error instanceof Error

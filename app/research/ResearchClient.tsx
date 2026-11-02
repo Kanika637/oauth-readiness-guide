@@ -126,6 +126,7 @@ export default function ResearchClient({ query }: Props) {
   const [data, setData] = useState<ResearchResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
+  const [partial, setPartial] = useState<Pick<ResearchResult, "sources" | "composio"> | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
@@ -136,6 +137,7 @@ export default function ResearchClient({ query }: Props) {
     async function fetchResearch() {
       setIsLoading(true);
       setFetchError("");
+      setPartial(null);
       setData(null);
 
       try {
@@ -146,6 +148,11 @@ export default function ResearchClient({ query }: Props) {
         });
 
         const result = await response.json();
+
+        if (response.status === 429 && result.code === "AI_RATE_LIMITED") {
+          if (!cancelled) setPartial(result.partial);
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(result.error || "Unable to generate the research report.");
@@ -195,6 +202,60 @@ export default function ResearchClient({ query }: Props) {
         <p className="mt-3 text-sm text-gray-500">
           New providers may take longer to research.
         </p>
+      </main>
+    );
+  }
+
+  if (partial) {
+    return (
+      <main className="mx-auto max-w-4xl px-6 py-16">
+        <p className="text-sm font-semibold tracking-widest text-blue-600">OAUTH ATLAS</p>
+        <h1 className="mt-5 text-3xl font-bold">Our Gemini AI credits have run out.</h1>
+        <p className="mt-4 text-lg text-gray-700">
+          This project uses the free tier of Google Gemini to write the integration report, and
+          its free usage quota has been reached. This is not a problem with your search or the app.
+        </p>
+        <ul className="mt-6 list-disc space-y-2 pl-6 text-gray-600">
+          <li>Your search for &ldquo;{query}&rdquo; was found and researched successfully.</li>
+          <li>Only the final AI report step was blocked (error 429: quota exceeded).</li>
+          <li>The free quota resets periodically, so trying again later should work.</li>
+        </ul>
+
+        <section className="mt-10 rounded-xl border p-5">
+          <h2 className="text-lg font-semibold">What we could still find</h2>
+          <p className="mt-3 text-sm text-gray-700">
+            {partial.composio.toolkitFound
+              ? `Composio supports ${partial.composio.toolkitName}. ${partial.composio.explanation}`
+              : partial.composio.explanation || "No Composio toolkit information was available."}
+          </p>
+          <h3 className="mt-5 text-sm font-semibold text-gray-700">Documentation found</h3>
+          <ul className="mt-2 space-y-2 text-sm">
+            {partial.sources.map((source) => (
+              <li key={source.id}>
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline"
+                >
+                  {source.title} ↗
+                </a>
+                <span className="ml-2 text-gray-500">{source.hostname}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <button
+          onClick={handleRetry}
+          className="mt-8 rounded-lg bg-blue-600 px-5 py-3 text-white hover:bg-blue-700"
+        >
+          Try again
+        </button>
+        <div className="mt-6">
+          <Link href="/" className="text-blue-600 hover:underline">
+            ← Back to home
+          </Link>
+        </div>
       </main>
     );
   }
